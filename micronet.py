@@ -3,6 +3,9 @@ import os
 
 MC_TABLE_NAME = "smcroute"
 
+def ipv6(do_ipv6):
+    return "-6" if do_ipv6 else "" 
+
 
 class MicroNet:
     def __init__(self):
@@ -73,18 +76,18 @@ class MicroNet:
         cmd = f"ip netns exec {n2} ethtool -K {link_lb(1)} gso off"
         os.system(cmd)
     
-    def add_loopbacks(self, loopbacks_file):
+    def add_loopbacks(self, loopbacks_file, do_ipv6):
         with open(loopbacks_file) as fd:
             txt = fd.read().split("\n")
             for loopback_info in txt:
                 if len(loopback_info) == 0:
                     continue
                 ns1, loopback = loopback_info.split(" ")
-                cmd = f"ip netns exec {ns1} ip addr add {loopback} dev lo"
+                cmd = f"ip netns exec {ns1} ip {ipv6(do_ipv6)} addr add {loopback} dev lo"
                 self.loopbacks[ns1] = loopback[:-3]
                 os.system(cmd)
     
-    def add_link_addr(self, links_file):
+    def add_link_addr(self, links_file, do_ipv6):
         with open(links_file) as fd:
             txt = fd.read().split("\n")
             for link_info in txt:
@@ -99,17 +102,17 @@ class MicroNet:
                 # cmd = f"ip netns exec {ns1} sysctl net.ipv4.{itf}.ip_forward=1"
                 # print("aaa")
                 # os.system(cmd)
-                cmd = f"ip netns exec {ns1} ip addr add {link} dev {itf}"
+                cmd = f"ip netns exec {ns1} ip {ipv6(do_ipv6)} addr add {link} dev {itf}"
                 os.system(cmd)
     
-    def add_paths(self, paths_file):
+    def add_paths(self, paths_file, do_ipv6):
         with open(paths_file) as fd:
             txt = fd.read().split("\n")
             for path_info in txt:
                 if len(path_info) == 0:
                     continue
                 ns1, itf, link, loopback = path_info.split(" ")
-                cmd = f"ip netns exec {ns1} ip route add {loopback} via {link}"
+                cmd = f"ip netns exec {ns1} ip {ipv6(do_ipv6)} route add {loopback} via {link}"
                 print("Path command", cmd)
                 os.system(cmd)
     
@@ -130,8 +133,8 @@ class MicroNet:
                 cmd = f"smcrouted -l debug -I {MC_TABLE_NAME}-{node_id} && smcroutectl -I {MC_TABLE_NAME}-{node_id} add veth-{min(node_id, src)}-{max(node_id, src)}-{1 if node_id > src else 0} {mc_group.split('/')[0]} {out_itf_txt}"
                 print(node_id, cmd)
 
-    def set_bw_delay_loss(self, bw, delay, _loss):
-        tmp = lambda ns, itf: f"ip netns exec {ns} tc qdisc add dev {itf} root netem delay {delay}ms rate {bw}mbit"
+    def set_bw_delay_loss(self, bw, delay, loss):
+        tmp = lambda ns, itf: f"ip netns exec {ns} tc qdisc add dev {itf} root netem delay {delay}ms rate {bw}mbit loss {int(loss)}%"
         for ns in self.netns:
             for nei in self.node2link[ns]:
                 itf = f"veth-{min(ns, nei)}-{max(ns, nei)}-{1 if ns > nei else 0}"
@@ -139,7 +142,7 @@ class MicroNet:
                 print(cmd)
                 os.system(cmd)    
 
-    def create_topo(loopbacks, links, paths, multicast):
+    def create_topo(loopbacks, links, paths, multicast, ipv6):
         net = MicroNet()
 
         # Add node network namespace.
@@ -162,14 +165,14 @@ class MicroNet:
         
         # Add loopback addresses.
         print("Add loopbacks")
-        net.add_loopbacks(loopbacks)
+        net.add_loopbacks(loopbacks, args.ipv6)
 
         # Add links addresses.
         print("Add addresses")
-        net.add_link_addr(links)
+        net.add_link_addr(links, args.ipv6)
 
         # Add paths.
-        net.add_paths(paths)
+        net.add_paths(paths, args.ipv6)
 
         # Add multicast routes.
         if multicast is not None:
@@ -195,14 +198,15 @@ if __name__ == "__main__":
     parser.add_argument("-p", "--paths", type=str, default="configs/topo-paths.txt")
     parser.add_argument("-m", "--multicast", help="Add multicast routes in the given path", default=None)
     parser.add_argument("--clean", help="Clean the network namespaces", action="store_true")
-    parser.add_argument("--no-build", help="Does not build the network")
+    parser.add_argument("--no-build", help="Does not build the network", action="store_true")
     parser.add_argument("--bw", help="Set bandwidth limit in megabits. Default: 1", default=1)
     parser.add_argument("--delay", help="Set bandwidth limit in ms. Default: 1", default=10)
-    parser.add_argument("--loss", help="Set loss percentage. Default: 0. Does not work now", default=0)
+    parser.add_argument("--loss", help="Set loss percentage. Default: 0. Does not work now", default=0.0, type=float)
+    parser.add_argument("--ipv6", help="IPv6 instead of IPv4", action="store_true")
     args = parser.parse_args() 
 
     if args.clean:
         MicroNet.clean(args.loopbacks)
     if not args.no_build:
-        net = MicroNet.create_topo(args.loopbacks, args.links, args.paths, args.multicast)
+        net = MicroNet.create_topo(args.loopbacks, args.links, args.paths, args.multicast, args.ipv6)
         net.set_bw_delay_loss(args.bw, args.delay, args.loss)
