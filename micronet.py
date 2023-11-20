@@ -130,8 +130,10 @@ class MicroNet:
                     # Node index of the ith index.
                     nei = self.node2link[node_id][int(itf_idx)]
                     out_itf_txt += f"veth-{min(node_id, nei)}-{max(node_id, nei)}-{1 if node_id > nei else 0}"
-                cmd = f"smcrouted -l debug -I {MC_TABLE_NAME}-{node_id} && smcroutectl -I {MC_TABLE_NAME}-{node_id} add veth-{min(node_id, src)}-{max(node_id, src)}-{1 if node_id > src else 0} {mc_group.split('/')[0]} {out_itf_txt}"
-                print(node_id, cmd)
+                cmd = f"ip netns exec {node_id} smcrouted -l debug -I {MC_TABLE_NAME}-{node_id} && ip netns exec {node_id} smcroutectl -I {MC_TABLE_NAME}-{node_id} add veth-{min(node_id, src)}-{max(node_id, src)}-{1 if node_id > src else 0} {mc_group.split('/')[0]} {out_itf_txt}"
+                print(cmd)
+                os.system(cmd)
+
 
     def set_bw_delay_loss(self, bw, delay, loss):
         tmp = lambda ns, itf: f"ip netns exec {ns} tc qdisc add dev {itf} root netem delay {delay}ms rate {bw}mbit loss {int(loss)}%"
