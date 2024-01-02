@@ -134,6 +134,36 @@ class MicroNet:
                 print(cmd)
                 os.system(cmd)
 
+                # Add reverse route so that the client knows where to join.
+                for nei_intf in out_itf_txt.split(" "):
+                    # This is ugly.
+                    # Get the node ID of the neighbor.
+                    _ids = [int(i) for i in nei_intf.split("-")[1:3]]
+                    nei_id = _ids[0] if _ids[1] == node_id else _ids[1]
+
+                    # Oh yeah... also need to change the index of the interface.
+                    _idx = nei_intf[-1]
+                    nei_intf_out = nei_intf[:-1] + "1" if _idx == "0" else "0"
+
+                    cmd = f"ip netns exec {nei_id} ip route add {mc_group} dev {nei_intf_out}"
+                    print(cmd)
+                    os.system(cmd)
+    
+
+    def add_mc_sources_routes(self, mc_source_file):
+        with open(mc_source_file) as fd:
+            txt = fd.read().split("\n")
+            for source_info in txt:
+                if len(source_info) == 0:
+                    continue
+                # I would need the node ID but I only have the initial name. For now, assume that all sources are located at the same node, with ID 0.
+                node_id = 0
+                mc_addr = source_info.split(" ")[1]
+                out_itf = "veth-0-1-0"
+                cmd = f"ip netns exec {node_id} ip route add {mc_addr}/32 dev {out_itf}"
+                print("Multicast source", cmd)
+                os.system(cmd)
+
 
     def set_bw_delay_loss(self, bw, delay, loss):
         tmp = lambda ns, itf: f"ip netns exec {ns} tc qdisc add dev {itf} root netem delay {delay}ms rate {bw}mbit loss {int(loss)}%"
@@ -144,7 +174,7 @@ class MicroNet:
                 print(cmd)
                 os.system(cmd)    
 
-    def create_topo(loopbacks, links, paths, multicast, ipv6):
+    def create_topo(loopbacks, links, paths, multicast, multicast_sources, ipv6):
         net = MicroNet()
 
         # Add node network namespace.
@@ -179,6 +209,10 @@ class MicroNet:
         # Add multicast routes.
         if multicast is not None:
             net.add_mc_paths(multicast)
+        
+        # Add routes for the multicast sources.
+        if multicast_sources is not None:
+            net.add_mc_sources_routes(multicast_sources)
 
         return net
     
@@ -199,6 +233,7 @@ if __name__ == "__main__":
     parser.add_argument("-i", "--links", type=str, default="configs/topo-links.txt")
     parser.add_argument("-p", "--paths", type=str, default="configs/topo-paths.txt")
     parser.add_argument("-m", "--multicast", help="Add multicast routes in the given path", default=None)
+    parser.add_argument("-s", "--mc-sources", help="Add outgoing routes for the multicast sources", default=None)
     parser.add_argument("--clean", help="Clean the network namespaces", action="store_true")
     parser.add_argument("--no-build", help="Does not build the network", action="store_true")
     parser.add_argument("--bw", help="Set bandwidth limit in megabits. Default: 1", default=1)
@@ -210,5 +245,5 @@ if __name__ == "__main__":
     if args.clean:
         MicroNet.clean(args.loopbacks)
     if not args.no_build:
-        net = MicroNet.create_topo(args.loopbacks, args.links, args.paths, args.multicast, args.ipv6)
+        net = MicroNet.create_topo(args.loopbacks, args.links, args.paths, args.multicast, args.mc_sources, args.ipv6)
         net.set_bw_delay_loss(args.bw, args.delay, args.loss)
