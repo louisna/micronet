@@ -129,13 +129,13 @@ class MicroNet:
                 for itf_idx in out_itf:
                     # Node index of the ith index.
                     nei = self.node2link[node_id][int(itf_idx)]
-                    out_itf_txt += f"veth-{min(node_id, nei)}-{max(node_id, nei)}-{1 if node_id > nei else 0}"
+                    out_itf_txt += f"veth-{min(node_id, nei)}-{max(node_id, nei)}-{1 if node_id > nei else 0} "
                 cmd = f"ip netns exec {node_id} smcrouted -l debug -I {MC_TABLE_NAME}-{node_id} && ip netns exec {node_id} smcroutectl -I {MC_TABLE_NAME}-{node_id} add veth-{min(node_id, src)}-{max(node_id, src)}-{1 if node_id > src else 0} {mc_group.split('/')[0]} {out_itf_txt}"
                 print(cmd)
                 os.system(cmd)
 
                 # Add reverse route so that the client knows where to join.
-                for nei_intf in out_itf_txt.split(" "):
+                for nei_intf in out_itf_txt.strip().split(" "):
                     # This is ugly.
                     # Get the node ID of the neighbor.
                     _ids = [int(i) for i in nei_intf.split("-")[1:3]]
